@@ -1,4 +1,4 @@
-# 京东助手 jd-cookie
+# 京东助手 jd-cookie-magisk
 
 > 自动读取京东 App Cookie 并同步至青龙面板的 **Magisk / KernelSU / APatch** 模块。
 
