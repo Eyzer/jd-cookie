@@ -148,7 +148,8 @@ cd ../kernelsu && zip -r ../jd-cookie-<version>.zip .
 在模块管理器中直接卸载即可。`uninstall.sh` 会自动终止守护进程并清理 `token.txt`、`webroot`、日志等运行时文件。
 
 ---
-
+## 原项目
+感谢开源：<https://github.com/gesoy/jd-cookie>
 ## 📜 License
 
 MIT
