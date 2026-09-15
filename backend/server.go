@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"time"
 )
 
@@ -87,13 +88,15 @@ func cors(next http.Handler) http.Handler {
 func httpListen() error {
 	initToken()
 
-	mux := http.NewServeMux()
+	// API 采用子 mux，仅 /api/* 需要 token 鉴权；
+	// staticHandler 提供 WebUI 静态页面与 token.txt，供浏览器同源加载。
+	api := http.NewServeMux()
 
-	mux.HandleFunc("GET /api/status", func(w http.ResponseWriter, r *http.Request) {
+	api.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
 		writeResp(w, respOK(state.snapshot()))
 	})
 
-	mux.HandleFunc("GET /api/cookie", func(w http.ResponseWriter, r *http.Request) {
+	api.HandleFunc("GET /cookie", func(w http.ResponseWriter, r *http.Request) {
 		cr := readCookie()
 		if cr.OK {
 			logf("读取Cookie  %s  %s", cr.Pin, cr.Key)
@@ -103,7 +106,7 @@ func httpListen() error {
 		writeResp(w, respOK(cr))
 	})
 
-	mux.HandleFunc("POST /api/cookie", func(w http.ResponseWriter, r *http.Request) {
+	api.HandleFunc("POST /cookie", func(w http.ResponseWriter, r *http.Request) {
 		var body struct{ Cookie string `json:"cookie"` }
 		data, _ := io.ReadAll(r.Body)
 		cfg := loadConfig()
@@ -122,10 +125,10 @@ func httpListen() error {
 		writeResp(w, respOK(qr))
 	})
 
-	mux.HandleFunc("GET /api/config", func(w http.ResponseWriter, r *http.Request) {
+	api.HandleFunc("GET /config", func(w http.ResponseWriter, r *http.Request) {
 		writeResp(w, respOK(loadConfig()))
 	})
-	mux.HandleFunc("PUT /api/config", func(w http.ResponseWriter, r *http.Request) {
+	api.HandleFunc("PUT /config", func(w http.ResponseWriter, r *http.Request) {
 		var cfg Config
 		if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
 			writeResp(w, respErr("JSON 解析失败"))
@@ -144,7 +147,7 @@ func httpListen() error {
 		writeResp(w, respOK())
 	})
 
-	mux.HandleFunc("POST /api/test", func(w http.ResponseWriter, r *http.Request) {
+	api.HandleFunc("POST /test", func(w http.ResponseWriter, r *http.Request) {
 		var tmp Config
 		cfg := loadConfig()
 		if r.Body != nil {
@@ -174,7 +177,7 @@ func httpListen() error {
 		}
 	})
 
-	mux.HandleFunc("GET /api/log/stream", func(w http.ResponseWriter, r *http.Request) {
+	api.HandleFunc("GET /log/stream", func(w http.ResponseWriter, r *http.Request) {
 		fl, ok := w.(http.Flusher)
 		if !ok {
 			w.WriteHeader(500)
@@ -207,10 +210,33 @@ func httpListen() error {
 		}
 	})
 
-	mux.HandleFunc("DELETE /api/log", func(w http.ResponseWriter, r *http.Request) {
+	api.HandleFunc("DELETE /log", func(w http.ResponseWriter, r *http.Request) {
 		logClear()
 		writeResp(w, respOK())
 	})
 
-	return http.ListenAndServe(listenAddr, cors(authMux(mux)))
+	// 组装：/api/* 走鉴权，其余路径提供 WebUI 静态资源（免鉴权）
+	mux := http.NewServeMux()
+	mux.Handle("/api/", http.StripPrefix("/api", authMux(api)))
+	mux.Handle("/", staticHandle(modDir+"/webroot"))
+
+	return http.ListenAndServe(listenAddr, cors(mux))
+}
+
+// staticHandle 提供 WebUI 静态文件与 token.txt；
+// 让浏览器可直接打开 http://127.0.0.1:17320 使用界面（无需 KernelSU Manager）。
+func staticHandle(dir string) http.Handler {
+	fs := http.FileServer(http.Dir(dir))
+	fsd := http.Dir(dir)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 未命中文件时回退到 index.html（SPA 路由兜底）
+		p := r.URL.Path
+		if r.Method == http.MethodGet && p != "/" {
+			if _, err := fsd.Open(p); err != nil {
+				http.ServeFile(w, r, filepath.Join(dir, "index.html"))
+				return
+			}
+		}
+		fs.ServeHTTP(w, r)
+	})
 }
