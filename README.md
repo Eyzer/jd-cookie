@@ -1,6 +1,6 @@
-# jd-cookie
+# jd-cookie-magisk
 
-KernelSU 模块 —— 自动读取京东 Cookie 并同步至青龙面板。
+Magisk模块 —— 自动读取京东 Cookie 并同步至青龙面板。
 
 搭配 [jdpro](https://github.com/6dylan6/jdpro) 使用，显著减少 Cookie 过期后的手动维护。
 
@@ -18,38 +18,43 @@ jdpro 等京东脚本依赖 `JD_COOKIE` 环境变量��但 Cookie 有效期�
 - WebUI 配置管理 + SSE 实时日志流
 - Token 鉴权，外部请求一律拒绝
 
-## 完整教程：jdpro + 本模块
+## 对原项目的修改
+本 PR 在保留原有 KernelSU 支持的基础上：
 
-### 1. 部署青龙面板
+ - 新增对 Magisk 与 APatch 的支持
+ - 新增 kernelsu/sepolicy.rule，放行 Magisk 域读取京东 WebView Cookie 数据库、监听本地端口所需的 SELinux 权限；
+ - 新增 kernelsu/uninstall.sh 卸载清理脚本（终止守护进程、清理 token/日志）；
+ - customize.sh、service.sh、module.prop 适配多 root 方案（Magisk/KernelSU/APatch），service.sh 增加 boot_completed 等待与崩溃自动重启；
+ - 守护进程（Go）直接托管 WebUI 静态页面，解决 Magisk 下无界面入口、无法访问 WebUI 的问题，浏览器访问 http://127.0.0.1:17320 即可。
+ - 修复 Android 下 DNS 解析失败导致青龙面板无法连接
 
-推荐内网部署，青龙 2.15+ 即可。
+## 使用中发现的问题
+ - 问题：Android 的 /etc/resolv.conf 常缺失或指向未监听的环回地址（如 [::1]:53），Go 默认解析器报 dial tcp: lookup xxx: connection refused / i/o timeout；
+ - 方案：新增 backend/dns.go，完全自建 DNS 客户端，读取系统实际 DNS（getprop net.dns*）并回退公共 DNS（含 IPv6），逐服务器发送标准 DNS 查询（AAAA 优先），一个超时自动换下一个；
+ - 通过自定义 DialContext 接入 HTTP 客户端，解析出 IP 后直连，TLS 仍按原域名校验。
+## Changes
+ -  backend/dns.go：自建 DNS 解析器（新增）
+ -  backend/ql.go：HTTP 客户端接入自定义 DNS 拨号
+ -  backend/server.go：Go 守护进程直接托管 WebUI 静态资源
+ -  kernelsu/sepolicy.rule：Magisk SELinux 策略（新增）
+-   kernelsu/uninstall.sh：卸载清理脚本（新增）
+ -  kernelsu/customize.sh / service.sh / module.prop：多 root 适配
+ -  README.md：补充 Magisk 安装/使用说明
 
-### 2. 订阅 jdpro
+## 编译产物
+  jd-cookie-magisk-v1.2.0.zip 可于 [Releases](https://github.com/Eyzer/jd-cookie/releases/tag/v1.2.0) 使用，或按 README「构建」自行编译。
 
-青龙面板 → 订阅管理 → 创建订阅：
+###  安装本模块
 
-```
-名称: jdpro
-类型: 公开仓库
-链接: https://github.com/6dylan6/jdpro.git
-分支: main
-白名单: jd_|jx_|jddj_
-黑名单: backUp
-依赖文件: ^jd[^_]|USER|JD|function|sendNotify|utils
-```
+  下载 [Releases](https://github.com/Eyzer/jd-cookie/releases/tag/v1.2.0) 中最新 `jd_assistant-magisk.zip`，使用 ** Magisk ** 刷入。
 
-运行订阅 → 依赖安装任务 → 配置通知。
-
-### 3. 安装本模块
-
-下载 [Releases](https://github.com/Gesoy/jd-cookie/releases) 中最新 `jd_assistant.zip`，KernelSU Manager 刷入。
-
-### 4. 配置
+### 配置
 
 1. 手机打开**京东 App** 登录账号（Cookie 写入 WebView 数据库）
-2. KernelSU Manager → 模块 → 京东助手 → 打开
-3. WebUI 填写青龙面板**地址、用户名、密码**，保存
-4. 点击**读取**按钮，或等待自动上传
+2. Magisk → 模块 → 京东助手 → 打开
+3. 用手机自带浏览器打开 **http://127.0.0.1:17320**
+4. 页面里填青龙面板地址、用户名、密码，点保存
+5. 点击**读取**按钮，或等待自动上传
 
 ### 5. 验证
 
@@ -67,30 +72,6 @@ jdpro 等京东脚本依赖 `JD_COOKIE` 环境变量��但 Cookie 有效期�
               自动签到、领豆...
 ```
 
-## 结构
-
-```
-├── backend/        Go 守护进程
-├── frontend/       Vue 3 WebUI
-├── kernelsu/       模块打包目录
-│   ├── service.sh  启动脚本
-│   └── module.prop
-└── .github/workflows/  CI/CD
-```
-
-## 构建
-
-```bash
-# 后端
-cd backend
-CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -ldflags="-s -w" -o ../kernelsu/bin/jd-cookie .
-
-# 前端
-cd frontend && npm install && npm run build
-
-# 打包
-cd kernelsu && zip -r ../jd_assistant.zip .
-```
 
 ## License
 
