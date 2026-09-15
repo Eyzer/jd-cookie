@@ -1,66 +1,78 @@
-# jd-cookie-magisk
+# 京东助手 jd-cookie
 
-Magisk模块 —— 自动读取京东 Cookie 并同步至青龙面板。
+> 自动读取京东 App Cookie 并同步至青龙面板的 **Magisk / KernelSU / APatch** 模块。
 
-搭配 [jdpro](https://github.com/6dylan6/jdpro) 使用，显著减少 Cookie 过期后的手动维护。
+无需抓包、无需浏览器插件——只要手机京东 App 登录态有效，模块会自动从 WebView 数据库提取 `pt_key` / `pt_pin`，上传到青龙面板 `JD_COOKIE` 环境变量，配合 [jdpro](https://github.com/6dylan6/jdpro) 等脚本自动完成任务，显著减少 Cookie 过期后的手动维护。
 
-## 为什么需要这个模块
+---
 
-jdpro 等京东脚本依赖 `JD_COOKIE` 环境变量��但 Cookie 有效期越来越短（部分用户每天过期）。手动抓包费时费力。
+## ✨ 特性
 
-本模块无需抓包——直接读取手机京东 App 的 WebView Cookie 数据库（`/data/data/com.jingdong.app.mall/app_webview/Default/Cookies`），提取 `pt_key` / `pt_pin` 后上传青龙面板。只要京东 App 登录态有效，Cookie 就能自动获取，省去反复抓包的麻烦。
+- **自动读取**：直接读取 `/data/data/com.jingdong.app.mall/app_webview/Default/Cookies`，提取 `pt_key` / `pt_pin`
+- **自动上传**：Cookie 去重后自动写入青龙面板 `JD_COOKIE` 环境变量
+- **多平台支持**：同时兼容 **Magisk / KernelSU / APatch** 三种 Root 方案
+- **WebUI 管理**：内置可视化配置页面，支持青龙面板设置、Token 鉴权、实时日志流
+- **低占用**：Go 静态编译的轻量守护进程，内存占用约 7.5 MB
+- **故障自愈**：守护进程崩溃自动重启；内置自建 DNS 解析器，规避 Android DNS 失效问题
 
-## 功能
+---
 
-- 从京东 App WebView Cookie 数据库读取 `pt_key` / `pt_pin`
-- Cookie 去重后自动上传至青龙面板 `JD_COOKIE` 环境变量
-- Go 守护进程，内存占用约 7.5 MB
-- WebUI 配置管理 + SSE 实时日志流
-- Token 鉴权，外部请求一律拒绝
+## 🛠 相比原版 KernelSU-only 的增强
 
-## 对原项目的修改
-本 PR 在保留原有 KernelSU 支持的基础上：
+| 能力 | 说明 |
+| --- | --- |
+| **Magisk / APatch 适配** | 新增 `sepolicy.rule` 放行 SELinux 策略、`uninstall.sh` 卸载清理、`customize.sh` / `service.sh` / `module.prop` 多方案适配 |
+| **WebUI 可达** | 原版依赖 KernelSU Manager 渲染，Magisk 下无入口；现由 Go 守护进程直接托管静态页面，浏览器访问 `http://127.0.0.1:17320` 即达 |
+| **DNS 修复** | 解决 Android `/etc/resolv.conf` 缺失/损坏导致的 `dial tcp: lookup ... connection refused` / `i/o timeout`，青龙面板无法连接的问题 |
 
- - 新增对 Magisk 与 APatch 的支持
- - 新增 kernelsu/sepolicy.rule，放行 Magisk 域读取京东 WebView Cookie 数据库、监听本地端口所需的 SELinux 权限；
- - 新增 kernelsu/uninstall.sh 卸载清理脚本（终止守护进程、清理 token/日志）；
- - customize.sh、service.sh、module.prop 适配多 root 方案（Magisk/KernelSU/APatch），service.sh 增加 boot_completed 等待与崩溃自动重启；
- - 守护进程（Go）直接托管 WebUI 静态页面，解决 Magisk 下无界面入口、无法访问 WebUI 的问题，浏览器访问 http://127.0.0.1:17320 即可。
- - 修复 Android 下 DNS 解析失败导致青龙面板无法连接
+> 详见本项目 [`README`](README.md) 底部「常见问题」。
 
-## 使用中发现的问题
- - 问题：Android 的 /etc/resolv.conf 常缺失或指向未监听的环回地址（如 [::1]:53），Go 默认解析器报 dial tcp: lookup xxx: connection refused / i/o timeout；
- - 方案：新增 backend/dns.go，完全自建 DNS 客户端，读取系统实际 DNS（getprop net.dns*）并回退公共 DNS（含 IPv6），逐服务器发送标准 DNS 查询（AAAA 优先），一个超时自动换下一个；
- - 通过自定义 DialContext 接入 HTTP 客户端，解析出 IP 后直连，TLS 仍按原域名校验。
-## Changes
- -  backend/dns.go：自建 DNS 解析器（新增）
- -  backend/ql.go：HTTP 客户端接入自定义 DNS 拨号
- -  backend/server.go：Go 守护进程直接托管 WebUI 静态资源
- -  kernelsu/sepolicy.rule：Magisk SELinux 策略（新增）
--   kernelsu/uninstall.sh：卸载清理脚本（新增）
- -  kernelsu/customize.sh / service.sh / module.prop：多 root 适配
- -  README.md：补充 Magisk 安装/使用说明
+---
 
-## 编译产物
-  jd-cookie-magisk-v1.2.0.zip 可于 [Releases](https://github.com/Eyzer/jd-cookie/releases/tag/v1.2.0) 使用，或按 README「构建」自行编译。
+## 📖 完整教程：jdpro + 本模块
 
-###  安装本模块
+### 1. 部署青龙面板
 
-  下载 [Releases](https://github.com/Eyzer/jd-cookie/releases/tag/v1.2.0) 中最新 `jd_assistant-magisk.zip`，使用 ** Magisk ** 刷入。
+推荐内网部署，青龙 **2.15+** 即可。
 
-### 配置
+### 2. 订阅 jdpro
 
-1. 手机打开**京东 App** 登录账号（Cookie 写入 WebView 数据库）
-2. Magisk → 模块 → 京东助手 → 打开
-3. 用手机自带浏览器打开 **http://127.0.0.1:17320**
-4. 页面里填青龙面板地址、用户名、密码，点保存
-5. 点击**读取**按钮，或等待自动上传
+青龙面板 → 订阅管理 → 创建订阅：
+
+```
+名称: jdpro
+类型: 公开仓库
+链接: https://github.com/6dylan6/jdpro.git
+分支: main
+白名单: jd_|jx_|jddj_
+黑名单: backUp
+依赖文件: ^jd[^_]|USER|JD|function|sendNotify|utils
+```
+
+运行订阅 → 安装依赖 → 配置通知。
+
+### 3. 安装本模块
+
+下载 [Releases](https://github.com/Gesoy/jd-cookie/releases) 中的最新 zip，用 **Magisk Manager / KernelSU Manager / APatch** 刷入并重启。
+
+- **Magisk 用户**：模块会自动注入 `sepolicy.rule` 放行 SELinux 权限、注册 `uninstall.sh` 清理脚本，无需额外配置。
+- **KernelSU / APatch 用户**：行为与原版 KernelSU 一致，WebUI 由守护进程直接托管。
+
+### 4. 配置
+
+1. 手机打开**京东 App** 并登录（Cookie 写入 WebView 数据库）
+2. **Magisk / KernelSU Manager** → 模块 → **京东助手** → 开启（守护进程挂载在 `127.0.0.1:17320`）
+3. 浏览器访问 `http://127.0.0.1:17320` 打开内置 WebUI
+4. 填写青龙面板**地址、用户名、密码**（可选自定义环境变量名，默认 `JD_COOKIE`），保存
+5. 点击**测试连接**确认可达，再点**读取**手动触发，或等待自动定时上传
 
 ### 5. 验证
 
-青龙面板 → 环境变量 → `JD_COOKIE` 应出现最新值。jdpro 脚本会自动使用。
+青龙面板 → 环境变量 → `JD_COOKIE` 出现最新值即成功，jdpro 脚本会自动使用。
 
-## 流程示意
+---
+
+## 🔄 流程示意
 
 ```
 京东 App 登录 → WebView Cookie 数据库
@@ -72,7 +84,71 @@ jdpro 等京东脚本依赖 `JD_COOKIE` 环境变量��但 Cookie 有效期�
               自动签到、领豆...
 ```
 
+---
 
-## License
+## 🗂 目录结构
+
+```
+├── backend/          Go 守护进程
+│   ├── dns.go        自建 DNS 解析器（规避 Android DNS 失效）
+│   ├── ql.go         青龙面板 API 客户端（自定义 DNS 拨号）
+│   ├── server.go     HTTP 服务 / WebUI 静态资源托管
+│   ├── main.go       守护进程入口 & 定时循环
+│   └── ...
+├── frontend/         Vue 3 WebUI 前端源码
+├── kernelsu/         模块打包目录（兼容 Magisk / KernelSU / APatch）
+│   ├── customize.sh  安装 / 权限 / SELinux 适配脚本
+│   ├── service.sh    开机启动脚本（boot_completed 等待 + 崩溃重启）
+│   ├── sepolicy.rule Magisk SELinux 策略
+│   ├── uninstall.sh  卸载清理脚本
+│   ├── module.prop   模块元信息
+│   ├── bin/          jd-cookie 二进制（构建产物）
+│   └── webroot/      内置 WebUI 静态资源
+└── .github/workflows/ CI / 发布
+```
+
+---
+
+## 🔧 开发 & 构建
+
+前置：Go 1.21+、Node.js 18+。
+
+```bash
+# 1. 构建后端（Android arm64 静态编译）
+cd backend
+CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -ldflags="-s -w" -o ../kernelsu/bin/jd-cookie .
+
+# 2. 构建前端
+cd ../frontend && npm install && npm run build
+# 构建产物输出到 kernelsu/webroot
+
+# 3. 打包模块
+cd ../kernelsu && zip -r ../jd-cookie-<version>.zip .
+```
+
+> 说明：
+> - `CGO_ENABLED=0` 保证纯静态链接，规避 Android 动态库依赖；`-ldflags="-s -w"` 精简体积。
+> - 后端 `main.go` 已 `import _ "time/tzdata"`，内置时区数据库，无需依赖系统 tzdata。
+> - CI 见 `.github/workflows/`，可自动完成上述构建与 Release 发布。
+
+---
+
+## ❓ 常见问题
+
+**Q1：Magisk 下打开模块后没有图标 / 弹窗？**
+现版本无需图标——守护进程自身托管 WebUI，浏览器访问 `http://127.0.0.1:17320` 即可进入配置页。
+
+**Q2：报错 `dial tcp: lookup xxx: i/o timeout` 或 `connection refused`？**
+这是 Android 下 `/etc/resolv.conf` 缺失/损坏导致的 DNS 解析失败（常见于仅 IPv6 或自定义网络）。本模块已内置自建 DNS 解析器：读取系统真实 DNS（`getprop net.dns*`）并回退公共 DNS（含 IPv6），逐服务器重试，优先 IPv6。
+
+**Q3：青龙面板走反向代理 / 非标准端口？**
+在 WebUI 的青龙地址中填写完整 URL（含协议、域名、端口），例如 `https://ql.example.com:16667`，保存后测试连接即可。
+
+**Q4：如何卸载？**
+在模块管理器中直接卸载即可。`uninstall.sh` 会自动终止守护进程并清理 `token.txt`、`webroot`、日志等运行时文件。
+
+---
+
+## 📜 License
 
 MIT
