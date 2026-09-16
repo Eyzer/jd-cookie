@@ -53,7 +53,6 @@ func writeResp(w http.ResponseWriter, r apiResp) {
 	json.NewEncoder(w).Encode(r)
 }
 
-// authMux 全局 token 校验，无 token 直接 403
 func authMux(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if apiToken == "" {
@@ -88,8 +87,6 @@ func cors(next http.Handler) http.Handler {
 func httpListen() error {
 	initToken()
 
-	// API 采用子 mux，仅 /api/* 需要 token 鉴权；
-	// staticHandler 提供 WebUI 静态页面与 token.txt，供浏览器同源加载。
 	api := http.NewServeMux()
 
 	api.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
@@ -215,21 +212,26 @@ func httpListen() error {
 		writeResp(w, respOK())
 	})
 
-	// 组装：/api/* 走鉴权，其余路径提供 WebUI 静态资源（免鉴权）
 	mux := http.NewServeMux()
+
+	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
+		writeResp(w, respOK(state.snapshot()))
+	})
+
+	mux.HandleFunc("/api/token", func(w http.ResponseWriter, r *http.Request) {
+		writeResp(w, respOK(initToken()))
+	})
+
 	mux.Handle("/api/", http.StripPrefix("/api", authMux(api)))
 	mux.Handle("/", staticHandle(modDir+"/webroot"))
 
 	return http.ListenAndServe(listenAddr, cors(mux))
 }
 
-// staticHandle 提供 WebUI 静态文件与 token.txt；
-// 让浏览器可直接打开 http://127.0.0.1:17320 使用界面（无需 KernelSU Manager）。
 func staticHandle(dir string) http.Handler {
 	fs := http.FileServer(http.Dir(dir))
 	fsd := http.Dir(dir)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 未命中文件时回退到 index.html（SPA 路由兜底）
 		p := r.URL.Path
 		if r.Method == http.MethodGet && p != "/" {
 			if _, err := fsd.Open(p); err != nil {
