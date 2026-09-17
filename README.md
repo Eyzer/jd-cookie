@@ -19,7 +19,7 @@
 
 ---
 
-## 🛠 相比原版 KernelSU-only 的增强
+## 🛠 相比[原版](https://github.com/Gesoy/jd-cookie/releases) 的增强
 
 | 能力 | 说明 |
 | --- | --- |
@@ -58,7 +58,8 @@
 
 ### 3. 安装本模块
 
-下载 [Releases](https://github.com/Gesoy/jd-cookie/releases) 中的最新 zip，用 **Magisk Manager / KernelSU Manager / APatch** 刷入并重启。
+下载 [Releases](https://github.com/Eyzer/jd-cookie-magisk/releases) 中的最新 zip，用 **Magisk Manager / KernelSU Manager / APatch** 刷入并重启。
+
 
 - **Magisk 用户**：模块会自动注入 `sepolicy.rule` 放行 SELinux 权限、注册 `uninstall.sh` 清理脚本，无需额外配置。
 - **KernelSU / APatch 用户**：行为与原版 KernelSU 一致，WebUI 由守护进程直接托管。
@@ -165,3 +166,5 @@ cd ../kernelsu && zip -r ../jd-cookie-<version>.zip .
 ## 📜 License
 
 MIT
+## 特别感谢
+原项目：[Gesoy/jd-cookie](https://github.com/Gesoy/jd-cookie/releases)
