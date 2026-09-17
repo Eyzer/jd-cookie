@@ -13,6 +13,8 @@
 - **多平台支持**：同时兼容 **Magisk / KernelSU / APatch** 三种 Root 方案
 - **WebUI 管理**：内置可视化配置页面，支持青龙面板设置、Token 鉴权、实时日志流
 - **低占用**：Go 静态编译的轻量守护进程，内存占用约 7.5 MB
+- **强制重传**：Cookie 长时间未变化（默认 12 小时，可配置）会强制覆盖上传，规避 `pt_key` 过期但数据库值不变导致的"永不重传"
+- **Wxpusher 通知**：自动 / 手动上传成功、失败、强制重传时均可推送微信通知
 - **故障自愈**：守护进程崩溃自动重启；内置自建 DNS 解析器，规避 Android DNS 失效问题
 
 ---
@@ -25,6 +27,8 @@
 | **WebUI 可达** | 原版依赖 KernelSU Manager 渲染，Magisk 下无入口；现由 Go 守护进程直接托管静态页面，浏览器访问 `http://127.0.0.1:17320` 即达 |
 | **DNS 修复** | 解决 Android `/etc/resolv.conf` 缺失/损坏导致的 `dial tcp: lookup ... connection refused` / `i/o timeout`，青龙面板无法连接的问题 |
 | **Token 修复** | 新增免鉴权 `/api/status` 与 `/api/token` 端点，前端优先从后端取令牌，修复 WebUI 一直显示 offline、读取/上传报 403 的问题 |
+| **强制重传** | 记录 Cookie 最近变化时间，超过配置周期（默认 12h）仍未变化时强制覆盖上传，避免过期 Cookie 长时间不刷新 |
+| **Wxpusher 通知** | 上传成功/失败/强制重传时通过 Wxpusher 推送微信通知，可配置 appToken 与多个接收 UID |
 
 > 详见本项目 [`README`](README.md) 底部「常见问题」。
 
@@ -148,8 +152,13 @@ cd ../kernelsu && zip -r ../jd-cookie-<version>.zip .
 **Q4：如何卸载？**
 在模块管理器中直接卸载即可。`uninstall.sh` 会自动终止守护进程并清理 `token.txt`、`webroot`、日志等运行时文件。
 
-**Q5：进入 WebUI 后一直显示 offline / 读取操作报 403？**
-旧版前端靠同源 `token.txt` 读取令牌，令牌未就绪时 `/api/*` 会被 403 拒绝。现版本在守护进程内新增免鉴权的 `/api/status`（页面在线判定）和 `/api/token`（返回令牌）端点，前端优先从后端取令牌，正常打开 `http://127.0.0.1:17320` 即显示在线，可正常读取 / 上传。
+**Q5：Cookie 过期后为什么模块不主动重传 / 一直显示 offline 或报 403？**
+旧版依靠"值变化才上传"去重，Cookie 过期但数据库值不变时会一直跳过；且前端靠同源 `token.txt` 取令牌可能读不到而报 403。现版本新增**强制重传**（Cookie 超过周期未变化即强制覆盖上传，默认 12 小时，可在 WebUI 调整）与**免鉴权状态/令牌端点**，已解决上述问题。
+
+**Q6：如何配置 Wxpusher 微信通知？**
+1. 在 [Wxpusher](https://wxpusher.zjiecode.com/) 注册并创建应用，获取 **AppToken（`AT_` 开头）**；
+2. 关注应用得到你的 **UID（`UID_` 开头）**，多个接收人用逗号分隔；
+3. 在 WebUI → "Wxpusher 通知" 填入 AppToken 与 UID，保存即可。上传成功、失败、强制重传都会推送。
 
 ---
 
