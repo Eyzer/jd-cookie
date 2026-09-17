@@ -53,6 +53,7 @@ func writeResp(w http.ResponseWriter, r apiResp) {
 	json.NewEncoder(w).Encode(r)
 }
 
+// authMux 全局 token 校验，无 token 直接 403
 func authMux(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if apiToken == "" {
@@ -87,6 +88,9 @@ func cors(next http.Handler) http.Handler {
 func httpListen() error {
 	initToken()
 
+	// API 采用子 mux。健康检查 GET /status 免鉴权（用于前端判定在线状态）；
+	// 其余 /api/* 接口需要 token 鉴权。staticHandler 提供 WebUI 静态页面与 token.txt，
+	// 供浏览器同源加载。监听仅限 127.0.0.1，无 token 时仅能读状态，操作会被拒绝。
 	api := http.NewServeMux()
 
 	api.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
@@ -108,16 +112,27 @@ func httpListen() error {
 		data, _ := io.ReadAll(r.Body)
 		cfg := loadConfig()
 		var qr qlResult
+		val := ""
 		if len(data) > 0 && json.Unmarshal(data, &body) == nil && body.Cookie != "" {
+			val = body.Cookie
 			qr = uploadCookie(cfg, body.Cookie)
 		} else {
+			if cr := readCookie(); cr.OK {
+				val = cr.Cookie
+			}
 			qr = uploadFromDB(cfg)
 		}
 		if qr.OK {
 			saveUpload(time.Now().Format("2006-01-02 15:04:05"))
 			logf("[手动] 上传成功")
+			if val != "" {
+				notifyWx(cfg, fmt.Sprintf("[手动] 上传成功\n青龙面板：%s\n变量：%s\n%s", cfg.QLURL, cfg.EnvName, val))
+			} else {
+				notifyWx(cfg, fmt.Sprintf("[手动] 上传成功\n青龙面板：%s\n变量：%s", cfg.QLURL, cfg.EnvName))
+			}
 		} else {
 			logf("[手动] 上传失败 - %s", qr.Msg)
+			notifyWx(cfg, fmt.Sprintf("[手动] 上传失败\n青龙面板：%s\n原因：%s", cfg.QLURL, qr.Msg))
 		}
 		writeResp(w, respOK(qr))
 	})
@@ -212,12 +227,17 @@ func httpListen() error {
 		writeResp(w, respOK())
 	})
 
+	// 组装：GET /api/status 免鉴权（前端在线判定），其余 /api/* 走 token 鉴权，
+	// 其余路径提供 WebUI 静态资源（免鉴权）。
 	mux := http.NewServeMux()
 
+	// status 单独暴露（不含敏感信息），避免前端 token 未就绪导致界面永远 offline
 	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
 		writeResp(w, respOK(state.snapshot()))
 	})
 
+	// token 也单独暴露（本机回环监听、不对外），使 WebUI 能在无同源 token.txt 时取得令牌，
+	// 从而正常执行读取/上传等受保护操作；其余 /api/* 仍需 token 校验予以防盗链。
 	mux.HandleFunc("/api/token", func(w http.ResponseWriter, r *http.Request) {
 		writeResp(w, respOK(initToken()))
 	})
@@ -228,10 +248,13 @@ func httpListen() error {
 	return http.ListenAndServe(listenAddr, cors(mux))
 }
 
+// staticHandle 提供 WebUI 静态文件与 token.txt；
+// 让浏览器可直接打开 http://127.0.0.1:17320 使用界面（无需 KernelSU Manager）。
 func staticHandle(dir string) http.Handler {
 	fs := http.FileServer(http.Dir(dir))
 	fsd := http.Dir(dir)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 未命中文件时回退到 index.html（SPA 路由兜底）
 		p := r.URL.Path
 		if r.Method == http.MethodGet && p != "/" {
 			if _, err := fsd.Open(p); err != nil {
